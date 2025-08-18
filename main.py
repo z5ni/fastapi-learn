@@ -1,17 +1,62 @@
 from typing import Optional
-from pydantic import BaseModel
-from fastapi import FastAPI
+from pydantic import BaseModel, Field, field_validator
+from fastapi import FastAPI, HTTPException
 
 
 class Item(BaseModel):
-    name: str
-    description: str | None = None
-    price: float
-    tax: float | None = None
-    tags: list[str] = []
+    name: str = Field(
+        min_length=3,
+        max_length=50,
+        title="Item Name",  # 문서화를 위한 제목
+        description="The name of the item (3 to 50 chars)",  # 문서화를 위한 설명
+        examples=["Gaming Keyboard"],  # 문서화를 위한 예시
+    )
+    description: str | None = Field(
+        default=None,  # 기본값 설정
+        max_length=300,
+        title="Item Description",
+        description="Optional description of the item (max 300 chars)",
+    )
+    price: float = Field(
+        gt=0,  # greater than
+        le=100000.0,  # less than or equal to
+        title="Price",
+        description="The price of the item (must be positive and <= 100,000)",
+    )
+    tax: float | None = Field(
+        default=None,
+        gt=0,
+        title="Tax",
+        description="Optional tax amount (must be positive)",
+    )
+    code: str | None = Field(
+        default=None,
+        pattern="^code-\\d{3}$",  # 정규식 사용
+        title="Code",
+        description="Optional Code",
+    )
+    tags: list[str] = Field(
+        default=[],
+        # min_length=1,
+        max_length=5,
+        title="Tags",
+        description="List of tags for the item (up to 5 tags)",
+    )
+
+    # 커스텀 유효성 검사
+    # @field_validator를 사용해 특정 필드에 대한 커스텀 검증 로직 추가
+    @field_validator("name")
+    @classmethod  # 클래스 메서드로 정의 필요
+    def name_must_not_contain_admin(cls, v: str):
+        if "admin" in v.lower():
+            raise ValueError("Item name cannot contain 'admin'")
+        return v.title()
 
 
 app = FastAPI()
+
+# 임시 데이터 저장소
+items_db = {}
 
 
 @app.get("/")
@@ -29,7 +74,9 @@ async def get_items():
 @app.get("/items/{item_id}")
 async def get_item(item_id: int):
     """Get item"""
-    return {"item_id": item_id}
+    if item_id not in items_db:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return {"item_id": item_id, **items_db[item_id]}
 
 
 @app.get("/items/typed/{item_id}")
@@ -87,17 +134,14 @@ async def get_user_orders(user_id: int, status: Optional[str] = None):
     return result
 
 
-@app.post("/items")
+@app.post("/items", status_code=201)  # 성공 시 201 Created return
 async def create_item(item: Item):
     """Create a new item"""
-    name = item.name
-    price = item.price
-    description = item.description if item.description else ""
+    item_id = len(items_db) + 1
+    items_db[item_id] = item.model_dump()  # Pydantic 모델을 dict로 변환
 
-    # Pydantic V2: 모델 객체를 딕셔너리로 변환하기 위해 model_dump 사용
-    item_dict = item.model_dump()
-
-    return {"message": f"Item {name} created successfully", "data": item_dict}
+    print(f"Item Created: ID={item_id}, Data={items_db[item_id]}")
+    return {"item_id": item_id, **items_db[item_id]}
 
 
 @app.put("/items/{item_id}")
