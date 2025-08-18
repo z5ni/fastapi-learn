@@ -1,5 +1,14 @@
 from typing import Optional
+from pydantic import BaseModel
 from fastapi import FastAPI
+
+
+class Item(BaseModel):
+    name: str
+    description: str | None = None
+    price: float
+    tax: float | None = None
+    tags: list[str] = []
 
 
 app = FastAPI()
@@ -79,17 +88,33 @@ async def get_user_orders(user_id: int, status: Optional[str] = None):
 
 
 @app.post("/items")
-async def create_item():
+async def create_item(item: Item):
     """Create a new item"""
-    # TODO: Accept item data from request body
-    return {"message": "Item created successfully"}
+    name = item.name
+    price = item.price
+    description = item.description if item.description else ""
+
+    # Pydantic V2: 모델 객체를 딕셔너리로 변환하기 위해 model_dump 사용
+    item_dict = item.model_dump()
+
+    return {"message": f"Item {name} created successfully", "data": item_dict}
 
 
 @app.put("/items/{item_id}")
-async def update_item(item_id: int):
+async def update_item(item_id: int, item: Item, q: str | None = None):
     """Update a specific item"""
-    # TODO: Use path parameter and request body
-    return {"message": f"Item {item_id} updated successfully"}
+
+    print(f"path param: {item_id}")
+    print(f"request body: {item.model_dump()}")
+
+    if q:
+        print(f"query param: {q}")
+
+    result = {"item_id": item_id, **item.model_dump()}
+    if q:
+        result.update({"query_param": q})
+
+    return result
 
 
 @app.delete("/items/{item_id}")
