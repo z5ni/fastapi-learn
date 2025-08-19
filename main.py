@@ -1,6 +1,6 @@
 from typing import Optional
 from pydantic import BaseModel, Field, field_validator
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, status
 
 
 class Item(BaseModel):
@@ -64,11 +64,28 @@ async def read_root():
     return {"message": "Hello World!"}
 
 
+# == 의존성 주입 예시 ==
+# 공통 파라미터 처리: 여러 엔드포인트에서 공통으로 사용되는 파라미터들을 하나의 함수로 관리
+async def get_common_param(q: str | None = None, skip: int = 0, limit: int = 10):
+    return {"q": q, "skip": skip, "limit": limit}
+
+
+# Depends()를 사용해 의존성 주입: 함수의 반환값이 매개변수로 자동 주입됨
 @app.get("/items")
-async def get_items():
+async def get_items(common_params: dict = Depends(get_common_param)):
     """Get all items"""
-    items = ["Item A", "Item B", "Item C", "Item D"]
-    return {"items": items}
+    print(
+        f"q: {common_params['q']}, skip: {common_params['skip']}, limit: {common_params['limit']}"
+    )
+    return {"message": "Item list", "params": common_params}
+
+
+@app.get("/users")
+async def get_users(common_params: dict = Depends(get_common_param)):
+    print(
+        f"q: {common_params['q']}, skip: {common_params['skip']}, limit: {common_params['limit']}"
+    )
+    return {"message": "User list", "params": common_params}
 
 
 @app.get("/items/{item_id}")
@@ -98,6 +115,36 @@ async def get_current_user():
 @app.get("/users/{user_id}")
 async def get_user(user_id: int):
     return {"user_id": user_id}
+
+
+# == 중첩 의존성 주입 예시 ==
+# 1차 의존성: API 키 검증
+async def verify_api_key(api_key: str | None = None):
+    if api_key != "abc":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Invalid API Key"
+        )
+    return api_key
+
+
+# 2차 의존성: API 키 검증을 포함한 관리자 권한 검증 (의존성의 의존성)
+async def verify_admin_access(api_key: str = Depends(verify_api_key)):
+    print(f"admin access (API Key: {api_key})")
+    return {"is_admin": True}
+
+
+# 의존성을 사용한 보안 엔드포인트
+@app.get("/secure-data/")
+async def get_secure_data(api_key: str = Depends(verify_api_key)):
+    # verify_api_key 함수에서 예외 발생 시 실행되지 않음
+    print(f"보안 데이터 접근 허용 (API Key: {api_key})")
+    return {"message": "This is secure data", "access_api_key": api_key}
+
+
+@app.get("/admin/")
+async def get_admin_data(admin_info: dict = Depends(verify_admin_access)):
+    print(f"관리자 데이터 접근 허용 {admin_info}")
+    return {"message": "Hello admin", "admin_access": admin_info}
 
 
 # Query parameters: function arguments not in path become query params
