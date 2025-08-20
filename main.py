@@ -1,6 +1,9 @@
+import asyncio
 from typing import Optional
 from pydantic import BaseModel, Field, field_validator
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, Request
+from fastapi.middleware.cors import CORSMiddleware
+import time
 
 
 class Item(BaseModel):
@@ -55,12 +58,49 @@ class Item(BaseModel):
 
 app = FastAPI()
 
+
+# == CORS 미들웨어 설정 ==
+# 허용할 origin 목록
+origins = ["http://localhost:3000"]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,  # 허용할 origin 목록. ["*"]은 모든 origin 허용
+    allow_credentials=True,  # True 시 다른 origin 요청에 쿠키/인증 정보 포함 허용. 단 allow_origins is not ["*"]
+    allow_methods=[
+        "GET",
+        "POST",
+        "PUT",
+        "DELETE",
+    ],  # 허용할 HTTP 메서드 목록. ["*"]는 모든 표준 메서드 허용
+    allow_headers=["*"],  # 허용할 HTTP 요청 헤더 목록. ["*"]는 모든 헤더 허용
+)
+
+
+# == 미들웨어 ==
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    start_time = time.time()
+    print(f"[Middleware] Request received {request.method} {request.url.path}")
+
+    response = await call_next(request)  # 다음 처리 단계 호출 및 응답 받기
+
+    process_time = time.time() - start_time
+
+    # 응답 헤더에 커스텀 헤더 추가
+    response.headers["X-Process-Time"] = f"{process_time:.4f}"
+    print(f"[Middleware] Response generated. Process time: {process_time:.4f}")
+
+    return response  # 수정된 응답 반환
+
+
 # 임시 데이터 저장소
 items_db = {}
 
 
 @app.get("/")
 async def read_root():
+    await asyncio.sleep(0.5)
     return {"message": "Hello World!"}
 
 
