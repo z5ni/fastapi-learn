@@ -3,6 +3,8 @@ from typing import Optional
 from pydantic import BaseModel, Field, field_validator
 from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 import time
 
 
@@ -98,6 +100,59 @@ async def add_process_time_header(request: Request, call_next):
 items_db = {}
 
 
+# == 커스텀 예외 처리
+# 커스텀 예외 정의
+class CustomException(Exception):
+    def __init__(self, name: str, message: str = "Something is wrong!"):
+        self.name = name
+        self.message = message
+
+
+# CustomException에 대한 핸들러 등록 및 정의
+@app.exception_handler(CustomException)
+async def handle_custom_exception(request: Request, exc: CustomException):
+    return JSONResponse(
+        status_code=419,
+        content={
+            "error_type": "Custom Error",
+            "failed_name": exc.name,
+            "message": exc.message,
+            "request_url": str(request.url),
+        },
+    )
+
+
+# CustomException 예외 사용 엔드포인트
+@app.get("/customs/{name}")
+async def generate_custom_error(name: str):
+    if name == "custom":
+        raise CustomException(name=name, message="Custom Error!!")
+    elif name == "invalid":
+        # 핸들러가 없으므로 기본 500 예외 발생
+        raise ValueError("This is an unhandled ValueError")
+    return {"custom_name": name, "status": "ok"}
+
+
+# 기본 예외 핸들러 재정의: RequestValidationError (422) - Pydanic 유효성 검사 실패
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    error_details = []
+    for error in exc.errors():
+        field = " -> ".join(map(str, error["loc"]))  # 오류 발생 필드 위치
+        message = error["msg"]
+        error_details.append(f"Field '{field}': {message}")
+
+    # 간단한 테스트 응답 또는 커스텀 JSON 응답 반환
+    return JSONResponse(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        content={
+            "message": "Invalid input provided",
+            "details": exc.errors(),  # 원본 오류 상세 정보 포함
+            "simplified_details": error_details,
+        },
+    )
+
+
 @app.get("/")
 async def read_root():
     await asyncio.sleep(0.5)
@@ -132,7 +187,12 @@ async def get_users(common_params: dict = Depends(get_common_param)):
 async def get_item(item_id: int):
     """Get item"""
     if item_id not in items_db:
-        raise HTTPException(status_code=404, detail="Item not found")
+        # == HTTPException 예외 처리 ==
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,  # HTTP 상태 코드 지정 (필수)
+            detail=f"Item {item_id} not found",  # 오류 상세 메시지
+            headers={"X-Error-ID": "ITEM_NOT_FOUND"},  # 커스텀 응답 헤더
+        )
     return {"item_id": item_id, **items_db[item_id]}
 
 
